@@ -11,7 +11,7 @@
 #define PNG_SIG_SIZE 8
 uint8_t PNG_SIG[] = {137, 80, 78, 71, 13, 10, 26, 10};
 
-void read_byte(FILE *file, void *buff, size_t buff_size)
+void read_byte(FILE *file, void *buff, size_t buff_size, const char *source_file, int source_line)
 {
   /// @brief Read a fixed size of buffer from a file
   /// @param file
@@ -23,12 +23,12 @@ void read_byte(FILE *file, void *buff, size_t buff_size)
   {
     if (ferror(file))
     {
-      fprintf(stderr, "ERROR: could not read PNG header: %s\n", strerror(errno));
+      fprintf(stderr, "%s: %d ERROR: could not read PNG header: %s\n", source_file, source_line, strerror(errno));
       exit(1);
     }
     else if (feof(file))
     {
-      fprintf(stderr, "ERROR: could not read PNG header reached end of file.\n");
+      fprintf(stderr, "%s: %d ERROR: could not read PNG header reached end of file.\n", source_file, source_line);
       exit(1);
     }
     else
@@ -111,7 +111,7 @@ int main(int argc, char **argv)
   }
   char *input_filepath = *argv++;
 
-  if (argv == NULL)
+  if (*argv == NULL)
   {
     // check for the file is provided or not
     usage(stderr, program);
@@ -136,9 +136,11 @@ int main(int argc, char **argv)
     fprintf(stderr, "ERROR: The file <%s> could not be opened in write mode: %s.\n", input_filepath, strerror(errno));
     exit(1);
   }
+  
   // read the signature
   uint8_t sig[PNG_SIG_SIZE]; // allocate 8 byte using 8 bit int if i m not wrong this should be the explanation of this line of code
-  read_byte(input_file, sig, PNG_SIG_SIZE);
+  read_byte(input_file, sig, PNG_SIG_SIZE, __FILE__, __LINE__);
+  write_byte(output_file, sig, PNG_SIG_SIZE);
 
   // compare png buff with actual value
   if (memcmp(sig, PNG_SIG, PNG_SIG_SIZE) != 0)
@@ -158,15 +160,15 @@ int main(int argc, char **argv)
   {
 
     uint32_t chunk_size;
-    read_byte(input_file, &chunk_size, sizeof(chunk_size));
+    read_byte(input_file, &chunk_size, sizeof(chunk_size),  __FILE__, __LINE__);
     write_byte(output_file, &chunk_size, sizeof(chunk_size));
 
     reverse_byte(&chunk_size, sizeof(chunk_size));
     // print the content of buffer
 
     uint8_t chunk_type[4];
-    read_byte(input_file, chunk_type, sizeof(chunk_type));
-    write_byte(output_file, &chunk_type, sizeof(chunk_type));
+    read_byte(input_file, chunk_type, sizeof(chunk_type),  __FILE__, __LINE__);
+    write_byte(output_file, chunk_type, sizeof(chunk_type));
 
     if (*(uint32_t *)chunk_type == 0x444E4549)
     {
@@ -181,12 +183,12 @@ int main(int argc, char **argv)
       {
         m = CHUNK_BUFF_CAP;
       }
-      read_byte(input_file, chunk_buff, m);
+      read_byte(input_file, chunk_buff, m,  __FILE__, __LINE__);
       write_byte(output_file, chunk_buff, m);
-      n -= CHUNK_BUFF_CAP;
+      n -= m;
     }
 #else
-    // skip the chunk  basically skip the data part
+    //  skip the chunk  basically skip the data part
     if (fseek(input_file, chunk_size, SEEK_CUR) < 0)
     {
       fprintf(stderr, "ERROR: could not skip the chunk: %s\n", strerror(errno));
@@ -194,9 +196,23 @@ int main(int argc, char **argv)
     }
 #endif
     uint32_t chunk_crc;
-    read_byte(input_file, &chunk_crc, sizeof(chunk_crc));
+    read_byte(input_file, &chunk_crc, sizeof(chunk_crc),  __FILE__, __LINE__);
     write_byte(output_file, &chunk_crc, sizeof(chunk_crc));
 
+
+    if(*(uint32_t*)chunk_type == 0x52444849){
+      uint32_t injected_size = 3;
+      reverse_byte(&injected_size, sizeof(injected_size));
+      write_byte(output_file, &injected_size, sizeof(injected_size));
+      reverse_byte(&injected_size, sizeof(injected_size));
+      char *injected_type = "jaNe";
+      uint32_t injected_crc = 0;
+      write_byte(output_file, injected_type, 4);
+      write_byte(output_file, "HEY", injected_size);
+      write_byte(output_file, &injected_crc, sizeof(injected_crc));      
+    }
+
+    
     printf("Chunk Size: %u\n", chunk_size);
     printf("Chunk type[decimal value]: ");
     print_byte(chunk_type, sizeof(chunk_type));
@@ -207,6 +223,7 @@ int main(int argc, char **argv)
     printf("Chunk CRC: 0x%08X\n", chunk_crc);
   }
 
+  
   fclose(input_file);
   fclose(output_file);
 
@@ -214,3 +231,4 @@ int main(int argc, char **argv)
 
   return 0;
 }
+
